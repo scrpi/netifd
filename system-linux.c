@@ -1231,14 +1231,61 @@ system_if_apply_settings(struct device *dev, struct device_settings *s, unsigned
 	system_if_apply_rps_xps(dev, s);
 }
 
+static void
+system_if_apply_link_settings(struct device *dev)
+{
+	struct device_settings *s = &dev->settings;
+	struct ifreq ifr;
+	struct ethtool_cmd ecmd;
+	bool ecmd_changed = false;
+
+	memset(&ecmd, 0, sizeof(ecmd));
+	memset(&ifr, 0, sizeof(ifr));
+	strcpy(ifr.ifr_name, dev->ifname);
+
+	ifr.ifr_data = (caddr_t) &ecmd;
+	ecmd.cmd = ETHTOOL_GSET;
+
+	if (ioctl(sock_ioctl, SIOCETHTOOL, &ifr) == 0) {
+		if (s->flags & DEV_OPT_AUTO_NEG && ecmd.autoneg != s->auto_negotiate) {
+			ecmd.autoneg = s->auto_negotiate;
+			ecmd_changed = true;
+		}
+		if (s->flags & DEV_OPT_DUPLEX && ecmd.duplex != s->duplex) {
+			ecmd.duplex = s->duplex;
+			ecmd_changed = true;
+		}
+		if (s->flags & DEV_OPT_SPEED && ethtool_cmd_speed(&ecmd) != s->speed) {
+			ethtool_cmd_speed_set(&ecmd, s->speed);
+			ecmd_changed = true;
+		}
+
+		if (ecmd_changed) {
+			ecmd.cmd = ETHTOOL_SSET;
+			if (ioctl(sock_ioctl, SIOCETHTOOL, &ifr) < 0)
+				netifd_log_message(L_WARNING, "Failed to set link settings for %s (%s)", dev->ifname, strerror(errno));
+		}
+	}
+	else if (errno == EOPNOTSUPP) {
+		dev->ethtool_not_supported = true;
+	}
+	else {
+		netifd_log_message(L_WARNING, "Failed to get link settings for %s (%s)", dev->ifname, strerror(errno));
+	}
+}
+
 int system_if_up(struct device *dev)
 {
+	int ret;
 	system_if_get_settings(dev, &dev->orig_settings);
 	/* Only keep orig settings based on what needs to be set */
 	dev->orig_settings.valid_flags = dev->orig_settings.flags;
 	dev->orig_settings.flags &= dev->settings.flags;
 	system_if_apply_settings(dev, &dev->settings, dev->settings.flags);
-	return system_if_flags(dev->ifname, IFF_UP, 0);
+	ret = system_if_flags(dev->ifname, IFF_UP, 0);
+	if (!ret && !dev->ethtool_not_supported)
+		system_if_apply_link_settings(dev);
+	return ret;
 }
 
 int system_if_down(struct device *dev)
@@ -1463,6 +1510,8 @@ system_if_dump_info(struct device *dev, struct blob_buf *b)
 		c = blobmsg_open_array(b, "link-supported");
 		system_add_link_modes(b, ecmd.supported);
 		blobmsg_close_array(b, c);
+
+		blobmsg_add_string(b, "auto-negotiation", ecmd.autoneg == AUTONEG_ENABLE ? "on" : "off");
 
 		s = blobmsg_alloc_string_buffer(b, "speed", 8);
 		snprintf(s, 8, "%d%c", ethtool_cmd_speed(&ecmd),

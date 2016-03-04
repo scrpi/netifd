@@ -45,6 +45,9 @@ enum {
 	DEV_ATTR_MULTICAST_TO_UNICAST,
 	DEV_ATTR_MULTICAST_ROUTER,
 	DEV_ATTR_MULTICAST,
+	DEV_ATTR_AUTO_NEG,
+	DEV_ATTR_DUPLEX,
+	DEV_ATTR_SPEED,
 	__DEV_ATTR_MAX,
 };
 
@@ -88,6 +91,9 @@ enum {
 	DEV_OPT_MULTICAST_TO_UNICAST	= (1 << 14),
 	DEV_OPT_MULTICAST_ROUTER	= (1 << 15),
 	DEV_OPT_MULTICAST		= (1 << 16),
+	DEV_OPT_AUTO_NEG		= (1 << 17),
+	DEV_OPT_DUPLEX			= (1 << 18),
+	DEV_OPT_SPEED			= (1 << 19)
 };
 
 /* events broadcasted to all users of a device */
@@ -149,6 +155,9 @@ struct device_settings {
 	bool multicast_to_unicast;
 	unsigned int multicast_router;
 	bool multicast;
+	bool auto_negotiate;
+	unsigned int duplex;
+	unsigned int speed;
 };
 
 /*
@@ -198,6 +207,8 @@ struct device {
 
 	struct device_settings orig_settings;
 	struct device_settings settings;
+
+	bool ethtool_not_supported;
 };
 
 struct device_hotplug_ops {

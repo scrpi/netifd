@@ -19,6 +19,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <net/ethernet.h>
+#include <linux/ethtool.h>
 
 #ifdef linux
 #include <netinet/ether.h>
@@ -51,6 +52,9 @@ static const struct blobmsg_policy dev_attrs[__DEV_ATTR_MAX] = {
 	[DEV_ATTR_MULTICAST_TO_UNICAST] = { .name = "multicast_to_unicast", .type = BLOBMSG_TYPE_BOOL },
 	[DEV_ATTR_MULTICAST_ROUTER] = { .name = "multicast_router", .type = BLOBMSG_TYPE_INT32 },
 	[DEV_ATTR_MULTICAST] = { .name ="multicast", .type = BLOBMSG_TYPE_BOOL },
+	[DEV_ATTR_AUTO_NEG] = { .name = "auto_negotiate", .type = BLOBMSG_TYPE_BOOL },
+	[DEV_ATTR_DUPLEX] = { .name = "duplex", .type = BLOBMSG_TYPE_STRING },
+	[DEV_ATTR_SPEED] = { .name = "speed", .type = BLOBMSG_TYPE_INT32 },
 };
 
 const struct uci_blob_param_list device_attr_list = {
@@ -177,6 +181,9 @@ device_merge_settings(struct device *dev, struct device_settings *n)
 		s->multicast : os->multicast;
 	n->multicast_to_unicast = s->multicast_to_unicast;
 	n->multicast_router = s->multicast_router;
+	n->auto_negotiate = s->auto_negotiate;
+	n->duplex = s->duplex;
+	n->speed = s->speed;
 	n->flags = s->flags | os->flags | os->valid_flags;
 }
 
@@ -187,6 +194,7 @@ device_init_settings(struct device *dev, struct blob_attr **tb)
 	struct blob_attr *cur;
 	struct ether_addr *ea;
 	bool disabled = false;
+	const char *duplex;
 
 	s->flags = 0;
 	if ((cur = tb[DEV_ATTR_ENABLED]))
@@ -293,6 +301,36 @@ device_init_settings(struct device *dev, struct blob_attr **tb)
 	if ((cur = tb[DEV_ATTR_MULTICAST])) {
 		s->multicast = blobmsg_get_bool(cur);
 		s->flags |= DEV_OPT_MULTICAST;
+	}
+
+	if ((cur = tb[DEV_ATTR_AUTO_NEG])) {
+		s->auto_negotiate = blobmsg_get_bool(cur) ? AUTONEG_ENABLE : AUTONEG_DISABLE;
+		s->flags |= DEV_OPT_AUTO_NEG;
+	}
+
+	if ((cur = tb[DEV_ATTR_DUPLEX])) {
+		duplex = blobmsg_get_string(cur);
+		if (duplex) {
+			s->duplex = !strcmp(duplex, "half") ? DUPLEX_HALF : DUPLEX_FULL;
+			s->flags |= DEV_OPT_DUPLEX;
+		}
+	}
+
+	if ((cur = tb[DEV_ATTR_SPEED])) {
+		s->speed = blobmsg_get_u32(cur);
+		switch (s->speed) {
+			case SPEED_10:
+			case SPEED_100:
+			case SPEED_1000:
+			case SPEED_2500:
+			case SPEED_10000:
+				break;
+			default:
+				DPRINTF("Invalid speed: %d", s->speed);
+				s->speed = 0;
+		}
+		if (s->speed)
+			s->flags |= DEV_OPT_SPEED;
 	}
 
 	device_set_disabled(dev, disabled);
